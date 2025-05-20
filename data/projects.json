@@ -1,0 +1,41 @@
+{
+  "id": 0,
+  "client": "Benzel-Busch Mercedes-Benz & Audi",
+  "client_logo": "https://pub-9edaa7810b9a41c4ad3e323fc3af3bfa.r2.dev/mercedes-star.png",
+  "accent_color": "#000000",
+  "title": "Electric Vehicle (EV) Confessions",
+  "tags": [
+    "Art Director",
+    "Editor",
+    "Social Media",
+    "Digital Marketing",
+    "Post Production"
+  ],
+  "featured": "https://pub-9edaa7810b9a41c4ad3e323fc3af3bfa.r2.dev/ev-thumb.png",
+  "keypoints": [
+    {
+      "id": 0,
+      "featured": [
+        "https://player.vimeo.com/video/1081685107?h=350e0c432c"
+      ],
+      "title": "🎥 On-Set Art Direction & Storyboard Concepting",
+      "summary": "I helped shape storyboard, dialing in a tone that felt bold, lighthearted, and visually striking. While on the set, I assisted with shot composition, timing, and set direction to ensure every shot aligned with the storyboard while staying agile for real-time adjustments and creative opportunities."
+    },
+    {
+      "id": 1,
+      "featured": [
+        "https://pub-9edaa7810b9a41c4ad3e323fc3af3bfa.r2.dev/MA_Website2025_BB_Keypoint2-Img.png"
+      ],
+      "title": "🖥️ Full Post-Production Execution",
+      "summary": "I owned the edit from raw footage to final delivery—cutting for rhythm, color grading for brand tone, and mixing audio for clarity across platforms. That included custom cutdowns for social."
+    },
+    {
+      "id": 2,
+      "featured": [
+        "https://pub-9edaa7810b9a41c4ad3e323fc3af3bfa.r2.dev/MA_Website2025_BB_Keypoint3-Img.png"
+      ],
+      "title": "📲 Social Media Integration with Dealership Marketing",
+      "summary": "I created custom edits optimized for social—short, punchy clips designed for vertical formats and attention spans. These extended the campaign’s reach and reinforced key messages across platforms. The campaign anchored a broader EV campaign, tying into the dealership’s marketing strategy with incentive-based messaging across digital and in-store materials."
+    }
+  ]
+}
