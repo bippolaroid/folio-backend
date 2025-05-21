@@ -1,14 +1,15 @@
 use actix_cors::Cors;
 use actix_web::{
-    web::{self, resource, scope},
+    web::{self, resource, scope, Json},
     App, HttpResponse, HttpServer,
 };
 use std::{
-    fs::{self, File},
-    io::{BufReader, Read},
+    fs::File,
+    io::{BufReader, Write},
     net::{Ipv4Addr, SocketAddr},
 };
 use std::{io::Result, net::IpAddr};
+use types::Project;
 
 mod types;
 
@@ -40,7 +41,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn project_handler(project: web::Json<types::ProjectData>) -> HttpResponse {
+async fn project_handler(project: Json<Project>) -> HttpResponse {
     let project = types::Project {
         id: project.id.clone(),
         client: project.client.clone(),
@@ -50,6 +51,7 @@ async fn project_handler(project: web::Json<types::ProjectData>) -> HttpResponse
         tags: project.tags.clone(),
         featured: project.featured.clone(),
         keypoints: project.keypoints.clone(),
+        summary: project.summary.clone()
     };
 
     let filename = "projects.json";
@@ -57,28 +59,46 @@ async fn project_handler(project: web::Json<types::ProjectData>) -> HttpResponse
 
     match File::open(&file_path) {
         Ok(file) => {
-            let mut buffer: Vec<u8> = vec![];
-            let mut reader = BufReader::new(file);
-            let _ = reader.read_to_end(&mut buffer);
-            println!("Current: {}", buffer.len());
-            send_data(&project, &file_path).await
+            let project_data = handle_project_update(file, project);
+            let file = File::create(&file_path).expect("Failed to reopen file for writing");
+            write_data(project_data, file).await
         }
         Err(_) => {
-            File::create(&file_path).expect("Failed to create file");
-            send_data(&project, &file_path).await
+            let file = File::create(&file_path).expect("Failed to create file");
+            println!("File created.");
+            write_data(vec![project], file).await
         }
     }
 }
 
-async fn send_data(project: &types::Project, file: &String) -> HttpResponse {
+fn handle_project_update(file: File, new_project_data: Project) -> Vec<Project> {
+    let reader = BufReader::new(file);
+    let mut project_data: Vec<Project> = serde_json::from_reader(reader).unwrap();
+
+    let new_project_id: usize = new_project_data
+        .id
+        .as_u64()
+        .and_then(|unsigned| unsigned.try_into().ok())
+        .unwrap();
+
+    if new_project_id < project_data.len() {
+        project_data[new_project_id] = new_project_data;
+    } else {
+        project_data.push(new_project_data);
+    }
+
+    project_data
+}
+
+async fn write_data(project: Vec<Project>, mut file: File) -> HttpResponse {
     match serde_json::to_string_pretty(&project) {
         Ok(json) => {
-            if let Err(err) = fs::write(file, &json) {
-                eprintln!("Error writing to file {}: {}", file, err);
+            if let Err(err) = file.write_all(json.as_bytes()) {
+                eprintln!("Error writing to file {}:", err);
                 return HttpResponse::InternalServerError()
                     .body("Failed to write project data to file.");
             }
-            let message = format!("Project data written to {}", project.id);
+            let message = format!("Project data written.");
             println!("{}", message);
             println!("Size: {}", json.len());
             HttpResponse::Ok().body(message)
