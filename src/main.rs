@@ -4,13 +4,17 @@ use actix_web::{
     App, HttpResponse, HttpServer,
 };
 use awc::Client;
+use core::settings::Settings;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::io::Result;
 use std::{
     fs::File,
-    io::{self, BufReader, BufWriter, Read, Write},
-    net::{Ipv4Addr, SocketAddr},
+    io::{self, BufReader, BufWriter, Read},
 };
-use std::{io::Result, net::IpAddr};
+
+mod core;
+mod server;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Keypoint {
@@ -79,15 +83,110 @@ impl Project {
     }
 }
 
-const HOST: IpAddr = IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0));
-const PORT: u16 = 1234;
-const ADDR: SocketAddr = SocketAddr::new(HOST, PORT);
-const REMOTE_URL: &str = "http://cdn.mikeangelo.art";
 const LOCAL_PROJECTS_PATH: &str = "data";
-const LOCAL_BACKUP_PATH: &str = "backup";
 const PROJECTS_FILE_NAME: &str = "projects";
 
 //implement periodic core checks and creation if they dont exist (folders, etc)
+
+#[actix_web::main]
+async fn main() -> Result<()> {
+    let settings = Settings::load().unwrap();
+    let _ = init_local_files().await;
+    println!("\nStarting administrative server...");
+    let server_addr = format!("{}:{}", settings.ipv4_addr.value, settings.port.value);
+    let server = HttpServer::new(|| {
+        App::new()
+            .service(
+                scope("/api").service(
+                    resource("/projects")
+                        .route(web::get().to(get_handler))
+                        .route(web::post().to(post_handler)),
+                ),
+            )
+            .wrap(
+                Cors::default()
+                    .allow_any_origin()
+                    .allow_any_header()
+                    .allow_any_method(),
+            )
+    })
+    .bind(&server_addr)?;
+    println!("Server listening at {}...\n", server_addr);
+    server.run().await?;
+    Ok(())
+}
+
+async fn get_handler() -> HttpResponse {
+    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
+    let projects = load_from_storage(&local_projects_path).unwrap();
+    let value = serde_json::to_value(projects).unwrap();
+    HttpResponse::Ok().json(value)
+}
+
+async fn post_handler(new_project_data: Json<Project>) -> HttpResponse {
+    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
+    let mut current_projects: Vec<Project>;
+    let new_project = Project::new(
+        new_project_data.id,
+        new_project_data.client.clone(),
+        new_project_data.client_logo.clone(),
+        new_project_data.accent_color.clone(),
+        new_project_data.title.clone(),
+        new_project_data.tags.clone(),
+        new_project_data.featured.clone(),
+        new_project_data.keypoints.clone(),
+        new_project_data.summary.clone(),
+    );
+    match load_from_storage(&local_projects_path) {
+        Ok(projects) => {
+            current_projects = projects;
+            println!("Projects data loaded.");
+            match current_projects
+                .iter()
+                .find(|project| project.id == new_project.id)
+            {
+                Some(project) => {
+                    let project_index: usize = project.id.try_into().unwrap();
+                    current_projects[project_index] = new_project;
+                    match write_local_db(&local_projects_path, current_projects) {
+                        Ok(current_projects) => {
+                            println!(
+                                "\nProject id \"{}\" updated to \"{}\"\n",
+                                &current_projects[project_index].id,
+                                &current_projects[project_index].title
+                            );
+                        }
+                        Err(error) => {
+                            eprintln!("Error writing to local projects data: {}", error);
+                        }
+                    }
+                }
+                None => {
+                    println!("\nProject doesn't exist. Creating project...");
+                    let project_index: usize = new_project.id.try_into().unwrap();
+                    current_projects.push(new_project);
+                    match write_local_db(&local_projects_path, current_projects) {
+                        Ok(current_projects) => {
+                            println!(
+                                "\nProject \"{}\" added with id \"{}\"\n",
+                                &current_projects[project_index].title,
+                                &current_projects[project_index].id
+                            );
+                        }
+                        Err(error) => {
+                            eprintln!("Error writing to local projects data: {}", error);
+                        }
+                    }
+                }
+            }
+        }
+        Err(error) => {
+            eprintln!("Error fetching projects data: {}", error);
+            let _ = init_local_files().await;
+        }
+    }
+    HttpResponse::Ok().body("Project updated successfully!")
+}
 
 fn load_from_storage(local_projects_path: &str) -> Result<Vec<Project>> {
     match File::open(local_projects_path) {
@@ -197,10 +296,26 @@ async fn get_current_projects(
     }
 }
 
+fn init_paths() -> [String; 3] {
+    let settings = Settings::load().unwrap();
+    return [
+        format!(
+            "{}/{}.json",
+            settings.local_projects_path.value, settings.projects_file_name.value
+        ),
+        format!(
+            "{}/{}.json",
+            settings.remote_url.value, settings.projects_file_name.value
+        ),
+        format!(
+            "{}/{}.json",
+            settings.local_backup_path.value, settings.projects_file_name.value
+        ),
+    ];
+}
+
 async fn init_local_files() {
-    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
-    let remote_projects_path = format!("{}/{}.json", REMOTE_URL, PROJECTS_FILE_NAME);
-    let local_backup_path = format!("{}/{}.json", LOCAL_BACKUP_PATH, PROJECTS_FILE_NAME);
+    let [local_projects_path, remote_projects_path, local_backup_path] = init_paths();
     let mut current_projects: Vec<Project> = Vec::new();
 
     match get_current_projects(&local_projects_path, &remote_projects_path).await {
@@ -239,95 +354,4 @@ async fn init_local_files() {
             }
         }
     }
-}
-
-#[actix_web::main]
-async fn main() -> Result<()> {
-    let _ = init_local_files().await;
-    println!("\nStarting administrative server...");
-    let server = HttpServer::new(|| {
-        App::new()
-            .service(
-                scope("/api").service(
-                    resource("/projects")
-                        .route(web::get().to(response_handler))
-                        .route(web::post().to(response_handler)),
-                ),
-            )
-            .wrap(
-                Cors::default()
-                    .allow_any_origin()
-                    .allow_any_header()
-                    .allow_any_method(),
-            )
-    })
-    .bind(ADDR)?;
-    println!("Server listening at {}...\n", ADDR);
-    server.run().await?;
-    Ok(())
-}
-
-async fn response_handler(new_project_data: Json<Project>) -> HttpResponse {
-    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
-    let mut current_projects: Vec<Project>;
-    let new_project = Project::new(
-        new_project_data.id,
-        new_project_data.client.clone(),
-        new_project_data.client_logo.clone(),
-        new_project_data.accent_color.clone(),
-        new_project_data.title.clone(),
-        new_project_data.tags.clone(),
-        new_project_data.featured.clone(),
-        new_project_data.keypoints.clone(),
-        new_project_data.summary.clone(),
-    );
-    match load_from_storage(&local_projects_path) {
-        Ok(projects) => {
-            current_projects = projects;
-            println!("Projects data loaded.");
-            match current_projects
-                .iter()
-                .find(|project| project.id == new_project.id)
-            {
-                Some(project) => {
-                    let project_index: usize = project.id.try_into().unwrap();
-                    current_projects[project_index] = new_project;
-                    match write_local_db(&local_projects_path, current_projects) {
-                        Ok(current_projects) => {
-                            println!(
-                                "\nProject id \"{}\" updated to \"{}\"\n",
-                                &current_projects[project_index].id,
-                                &current_projects[project_index].title
-                            );
-                        }
-                        Err(error) => {
-                            eprintln!("Error writing to local projects data: {}", error);
-                        }
-                    }
-                }
-                None => {
-                    println!("\nProject doesn't exist. Creating project...");
-                    let project_index: usize = new_project.id.try_into().unwrap();
-                    current_projects.push(new_project);
-                    match write_local_db(&local_projects_path, current_projects) {
-                        Ok(current_projects) => {
-                            println!(
-                                "\nProject \"{}\" added with id \"{}\"\n",
-                                &current_projects[project_index].title,
-                                &current_projects[project_index].id
-                            );
-                        }
-                        Err(error) => {
-                            eprintln!("Error writing to local projects data: {}", error);
-                        }
-                    }
-                }
-            }
-        }
-        Err(error) => {
-            eprintln!("Error fetching projects data: {}", error);
-            let _ = init_local_files().await;
-        }
-    }
-    HttpResponse::Ok().body("Project updated successfully!")
 }
