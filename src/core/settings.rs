@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::{
     fs::File,
-    io::{BufReader, Error, Read},
+    io::{BufReader, Error, Read, Write},
     net::{Ipv4Addr, SocketAddr},
 };
 
@@ -51,47 +51,79 @@ impl Settings {
                         Ok(settings) => Ok(settings),
                         Err(error) => {
                             let error: Error = error.try_into().unwrap();
-                            fatal_load_error(&error);
-                            Err(error)
+                            eprintln!("Failed to parse settings file: {}", error);
+                            if let Err(error) = Settings::new() {
+                                fatal_load_error(&error);
+                            }
+                            Ok(Settings::load().unwrap())
                         }
                     },
                     Err(error) => {
-                        fatal_load_error(&error);
+                        eprintln!("Failed to read settings file: {}", error);
+                        if let Err(error) = Settings::new() {
+                            fatal_load_error(&error);
+                        }
+                        Ok(Settings::load().unwrap())
+                    }
+                }
+            }
+            Err(_) => {
+                if let Err(error) = Settings::new() {
+                    fatal_load_error(&error);
+                }
+                Ok(Settings::load().unwrap())
+            }
+        }
+    }
+
+    pub fn new() -> Result<(), Error> {
+        println!("Creating settings file...");
+        match File::create("core/settings.json") {
+            Ok(mut file) => {
+                let settings = Settings::new_list();
+                let settings_string = serde_json::to_string(&settings).unwrap();
+                match file.write_all(settings_string.as_bytes()) {
+                    Ok(_) => {
+                        println!("Settings file successfully created!");
+                        Ok(())
+                    }
+                    Err(error) => {
+                        eprintln!("Failed to write to settings file: {}", error);
                         Err(error)
                     }
                 }
             }
             Err(error) => {
-                fatal_load_error(&error);
+                eprintln!("Failed to create settings file: {}", error);
                 Err(error)
             }
         }
     }
 
-    pub fn new() -> Self {
+    pub fn new_list() -> Self {
         Settings {
             ipv4_addr: Ipv4Setting {
                 name: "Ipv4 Address".to_string(),
-                value: Ipv4Addr::new(127, 0, 0, 1),
+                value: Ipv4Addr::from([127, 0, 0, 1]),
             },
             port: U16Setting {
                 name: "Port".to_string(),
-                value: 4010,
+                value: 1234,
             },
             remote_url: StrSetting {
                 name: "Remote URL".to_string(),
-                value: "http://127.0.0.1:4010/data/projects.json".to_string(),
+                value: "http://cdn.mikeangelo.art".to_string(),
             },
             local_projects_path: StrSetting {
-                name: "local_projects_path".to_string(),
+                name: "Local Projects Path".to_string(),
                 value: "data".to_string(),
             },
             local_backup_path: StrSetting {
-                name: "local_backup_path".to_string(),
+                name: "Local Backup Path".to_string(),
                 value: "backup".to_string(),
             },
             projects_file_name: StrSetting {
-                name: "projects_file_name".to_string(),
+                name: "Projects File Name".to_string(),
                 value: "projects".to_string(),
             },
         }

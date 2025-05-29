@@ -1,26 +1,8 @@
 {
-    "ipv4_addr": {
-        "name": "Ipv4 Address",
-        "value": "0.0.0.0"
-    },
-    "port": {
-        "name": "Port",
-        "value": 1234
-    },
-    "remote_url": {
-        "name": "Remote URL",
-        "value": "http://cdn.mikeangelo.art"
-    },
-    "local_projects_path": {
-        "name": "Local Projects Path",
-        "value": "data"
-    },
-    "local_backup_path": {
-        "name": "Local Backup Path",
-        "value": "backup"
-    },
-    "projects_file_name": {
-        "name": "Projects File Name",
-        "value": "projects"
-    }
+  "ipv4_addr": { "name": "Ipv4 Address", "value": "127.0.0.1" },
+  "port": { "name": "Port", "value": 1234 },
+  "remote_url": { "name": "Remote URL", "value": "http://cdn.mikeangelo.art" },
+  "local_projects_path": { "name": "Local Projects Path", "value": "data" },
+  "local_backup_path": { "name": "Local Backup Path", "value": "backup" },
+  "projects_file_name": { "name": "Projects File Name", "value": "projects" }
 }

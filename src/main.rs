@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
     let server = HttpServer::new(|| {
         App::new()
             .service(
-                scope("/api").service(
+                scope("/v1").service(
                     resource("/projects")
                         .route(web::get().to(get_handler))
                         .route(web::post().to(post_handler)),
