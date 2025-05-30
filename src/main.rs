@@ -6,7 +6,6 @@ use actix_web::{
 use awc::Client;
 use core::settings::Settings;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::io::Result;
 use std::{
     fs::File,

@@ -81,7 +81,7 @@ impl Settings {
         match File::create("core/settings.json") {
             Ok(mut file) => {
                 let settings = Settings::new_list();
-                let settings_string = serde_json::to_string(&settings).unwrap();
+                let settings_string = serde_json::to_string_pretty(&settings).unwrap();
                 match file.write_all(settings_string.as_bytes()) {
                     Ok(_) => {
                         println!("Settings file successfully created!");
