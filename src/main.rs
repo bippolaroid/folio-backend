@@ -16,15 +16,7 @@ mod core;
 mod server;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Keypoint {
-    pub id: u32,
-    pub featured: Vec<String>,
-    pub title: String,
-    pub summary: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Project {
+pub struct Collection {
     pub id: u32,
     pub client: String,
     pub client_logo: String,
@@ -34,9 +26,35 @@ pub struct Project {
     pub featured: String,
     pub keypoints: Vec<Keypoint>,
     pub summary: String,
+    pub text_fields: Vec<TextField>,
 }
 
-impl Project {
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Keypoint {
+    pub id: u32,
+    pub featured: Vec<String>,
+    pub title: String,
+    pub summary: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TextField {
+    pub id: u32,
+    pub name: String,
+    pub value: String,
+}
+
+impl TextField {
+    pub fn new(id: u32, name: String, value: String) -> Self {
+        TextField {
+            id: id,
+            name: name,
+            value: value,
+        }
+    }
+}
+
+impl Collection {
     fn new(
         id: u32,
         client: String,
@@ -48,7 +66,7 @@ impl Project {
         keypoints: Vec<Keypoint>,
         summary: String,
     ) -> Self {
-        Project {
+        Collection {
             id: id,
             client: client,
             client_logo: client_logo,
@@ -58,9 +76,10 @@ impl Project {
             featured: featured,
             keypoints: keypoints,
             summary: summary,
+            text_fields: Vec::new(),
         }
     }
-    fn default(projects_data: Vec<Project>) -> Self {
+    fn default(projects_data: Vec<Collection>) -> Self {
         let id: u32 = projects_data.len().try_into().unwrap_or(0);
         let keypoint = Keypoint {
             id: 0,
@@ -68,7 +87,7 @@ impl Project {
             title: format!("New Keypoint 1 - {}", id),
             summary: format!("New Summary 1 - {}", id),
         };
-        Project {
+        Collection {
             id: id,
             client: format!("New Client {}", id),
             client_logo: "n/a".to_string(),
@@ -78,6 +97,7 @@ impl Project {
             featured: "n/a".to_string(),
             keypoints: vec![keypoint],
             summary: format!("New Summary {}", id),
+            text_fields: Vec::new(),
         }
     }
 }
@@ -99,7 +119,8 @@ async fn main() -> Result<()> {
                 scope("/v1").service(
                     resource("/projects")
                         .route(web::get().to(get_handler))
-                        .route(web::post().to(post_handler)),
+                        .route(web::post().to(post_handler))
+                        .route(web::delete().to(del_handler)),
                 ),
             )
             .wrap(
@@ -117,15 +138,24 @@ async fn main() -> Result<()> {
 
 async fn get_handler() -> HttpResponse {
     let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
-    let projects = load_from_storage(&local_projects_path).unwrap();
-    let value = serde_json::to_value(projects).unwrap();
-    HttpResponse::Ok().json(value)
+    match load_from_storage(&local_projects_path) {
+        Ok(projects) => {
+            let value = serde_json::to_value(projects).unwrap();
+            HttpResponse::Ok().json(value)
+        }
+        Err(error) => {
+            eprintln!("Failed to load projects data: {}", error);
+            println!("Re-initializing files...");
+            let _ = init_local_files();
+            HttpResponse::Ok().json("Failed to load local data. Please refresh.")
+        }
+    }
 }
 
-async fn post_handler(new_project_data: Json<Project>) -> HttpResponse {
+async fn post_handler(new_project_data: Json<Collection>) -> HttpResponse {
     let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
-    let mut current_projects: Vec<Project>;
-    let new_project = Project::new(
+    let mut current_projects: Vec<Collection>;
+    let new_project = Collection::new(
         new_project_data.id,
         new_project_data.client.clone(),
         new_project_data.client_logo.clone(),
@@ -154,9 +184,11 @@ async fn post_handler(new_project_data: Json<Project>) -> HttpResponse {
                                 &current_projects[project_index].id,
                                 &current_projects[project_index].title
                             );
+                            HttpResponse::Ok().body("Project updated successfully!")
                         }
                         Err(error) => {
                             eprintln!("Error writing to local projects data: {}", error);
+                            HttpResponse::from_error(error)
                         }
                     }
                 }
@@ -171,9 +203,12 @@ async fn post_handler(new_project_data: Json<Project>) -> HttpResponse {
                                 &current_projects[project_index].title,
                                 &current_projects[project_index].id
                             );
+                            HttpResponse::Ok()
+                                .body(format!("Project {} added successfully!", project_index))
                         }
                         Err(error) => {
                             eprintln!("Error writing to local projects data: {}", error);
+                            HttpResponse::from_error(error)
                         }
                     }
                 }
@@ -182,12 +217,35 @@ async fn post_handler(new_project_data: Json<Project>) -> HttpResponse {
         Err(error) => {
             eprintln!("Error fetching projects data: {}", error);
             let _ = init_local_files().await;
+            HttpResponse::from_error(error)
         }
     }
-    HttpResponse::Ok().body("Project updated successfully!")
 }
 
-fn load_from_storage(local_projects_path: &str) -> Result<Vec<Project>> {
+async fn del_handler(project: Json<Collection>) -> HttpResponse {
+    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
+    let mut projects = load_from_storage(&local_projects_path).unwrap();
+    let project_id: usize = project.id.try_into().unwrap();
+    projects.remove(project_id);
+    let mut i: u32 = 0;
+    let projects = projects.into_iter().map(|mut item| {
+        item.id = i;
+        i += 1;
+        item
+    }).collect();
+    match write_local_db(&local_projects_path, projects) {
+        Ok(_) => {
+            println!("{} deleted!", project.title);
+            HttpResponse::Ok().body("test")
+        }
+        Err(error) => {
+            eprintln!("Failed to delete project: {}", error);
+            HttpResponse::from_error(error)
+        }
+    }
+}
+
+fn load_from_storage(local_projects_path: &str) -> Result<Vec<Collection>> {
     match File::open(local_projects_path) {
         Ok(local_projects_file) => {
             let mut buffer: Vec<u8> = Vec::new();
@@ -195,7 +253,7 @@ fn load_from_storage(local_projects_path: &str) -> Result<Vec<Project>> {
             match reader.read_to_end(&mut buffer) {
                 Ok(size) => {
                     println!("Local projects data size: {}", size);
-                    match serde_json::from_slice::<Vec<Project>>(&buffer) {
+                    match serde_json::from_slice::<Vec<Collection>>(&buffer) {
                         Ok(local_projects_data) => {
                             println!("Successfully loaded local projects data.");
                             return Ok(local_projects_data);
@@ -219,13 +277,13 @@ fn load_from_storage(local_projects_path: &str) -> Result<Vec<Project>> {
     }
 }
 
-async fn load_from_cdn(remote_projects_path: &str) -> Result<Vec<Project>> {
+async fn load_from_cdn(remote_projects_path: &str) -> Result<Vec<Collection>> {
     let client = Client::default();
     match client.get(remote_projects_path).send().await {
         Ok(mut response) => match response.body().await {
             Ok(body) => {
                 println!("Remote projects data size: {}", body.len());
-                match serde_json::from_slice::<Vec<Project>>(&body) {
+                match serde_json::from_slice::<Vec<Collection>>(&body) {
                     Ok(projects_data) => {
                         println!("Remote projects data loaded!");
                         Ok(projects_data)
@@ -253,7 +311,7 @@ async fn load_from_cdn(remote_projects_path: &str) -> Result<Vec<Project>> {
     }
 }
 
-fn write_local_db(path: &str, projects: Vec<Project>) -> Result<Vec<Project>> {
+fn write_local_db(path: &str, projects: Vec<Collection>) -> Result<Vec<Collection>> {
     match File::create(&path) {
         Ok(file) => {
             println!("Creating file...");
@@ -271,7 +329,7 @@ fn write_local_db(path: &str, projects: Vec<Project>) -> Result<Vec<Project>> {
 async fn get_current_projects(
     local_projects_path: &str,
     remote_projects_path: &str,
-) -> Result<Vec<Project>> {
+) -> Result<Vec<Collection>> {
     println!(
         "\nLoading local projects data from \"{}\"...",
         &local_projects_path
@@ -315,7 +373,7 @@ fn init_paths() -> [String; 3] {
 
 async fn init_local_files() {
     let [local_projects_path, remote_projects_path, local_backup_path] = init_paths();
-    let mut current_projects: Vec<Project> = Vec::new();
+    let mut current_projects: Vec<Collection> = Vec::new();
 
     match get_current_projects(&local_projects_path, &remote_projects_path).await {
         Ok(projects) => {
@@ -324,18 +382,18 @@ async fn init_local_files() {
             println!("\nSyncing local files...");
             match write_local_db(&local_projects_path, current_projects.clone()) {
                 Ok(_) => {
-                    println!("Local working file created successfully!\n")
+                    println!("Local working file created successfully!\n");
+                    match write_local_db(&local_backup_path, current_projects) {
+                        Ok(_) => {
+                            println!("Local backup file created successfully!\n");
+                        }
+                        Err(error) => {
+                            eprintln!("Failed to create backup file: {}", error);
+                        }
+                    }
                 }
                 Err(error) => {
                     eprintln!("Failed to created working file: {}", error);
-                }
-            }
-            match write_local_db(&local_backup_path, current_projects) {
-                Ok(_) => {
-                    println!("Local backup file created successfully!\n");
-                }
-                Err(error) => {
-                    eprintln!("Failed to create backup file: {}", error);
                 }
             }
         }
@@ -343,9 +401,18 @@ async fn init_local_files() {
             eprintln!("Could not initialize projects data: {}", error);
             println!("Create new local projects file? (Y/N) ");
             println!("Creating new file...");
-            match write_local_db(&local_projects_path, current_projects) {
-                Ok(_) => {
+            let new_collections = vec![Collection::default(current_projects)];
+            match write_local_db(&local_projects_path, new_collections) {
+                Ok(current_projects) => {
                     println!("Database created successfully!");
+                    match write_local_db(&local_backup_path, current_projects) {
+                        Ok(_) => {
+                            println!("Local backup file created successfully!\n");
+                        }
+                        Err(error) => {
+                            eprintln!("Failed to create backup file: {}", error);
+                        }
+                    }
                 }
                 Err(error) => {
                     eprintln!("Could not create database: {}", error);
