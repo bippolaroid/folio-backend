@@ -119,7 +119,8 @@ async fn main() -> Result<()> {
                 scope("/v1").service(
                     resource("/projects")
                         .route(web::get().to(get_handler))
-                        .route(web::post().to(post_handler))
+                        .route(web::put().to(update_handler))
+                        .route(web::post().to(create_handler))
                         .route(web::delete().to(del_handler)),
                 ),
             )
@@ -136,6 +137,31 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn create_handler(collection: Json<Collection>) -> HttpResponse {
+    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
+    let collection_title = collection.title.clone();
+    match load_from_storage(&local_projects_path) {
+        Ok(mut collections) => {
+            let collection = collection.into_inner();
+            collections.push(collection);
+            match write_local_db(&local_projects_path, collections) {
+                Ok(_) => {
+                    println!("Added \"{}\"", collection_title);
+                    HttpResponse::Ok().body(format!("Added \"{}\"", collection_title))
+                }
+                Err(error) => {
+                    eprintln!("Failed to add \"{}\"", collection_title);
+                    HttpResponse::from_error(error)
+                }
+            }
+        }
+        Err(error) => {
+            eprintln!("Failed to add \"{}\"", collection_title);
+            HttpResponse::from_error(error)
+        }
+    }
+}
+
 async fn get_handler() -> HttpResponse {
     let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
     match load_from_storage(&local_projects_path) {
@@ -149,6 +175,27 @@ async fn get_handler() -> HttpResponse {
             let _ = init_local_files();
             HttpResponse::Ok().json("Failed to load local data. Please refresh.")
         }
+    }
+}
+
+async fn update_handler(collection: Json<Collection>) -> HttpResponse {
+    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
+    let collection_title = collection.title.clone();
+    match load_from_storage(&local_projects_path) {
+        Ok(collections) => {
+            let collection = collection.into_inner();
+            let collections = collections.iter().map(|item| {
+                if item.id == collection.id {
+                    return collection.clone();
+                } else {
+                    return item.clone();
+                }
+            }).collect();
+            println!("{:?}", collections);
+            let _ = write_local_db(&local_projects_path, collections);
+            HttpResponse::Ok().body(format!("Updated \"{}\"", collection_title))
+        }
+        Err(error) => HttpResponse::from_error(error),
     }
 }
 
@@ -228,11 +275,14 @@ async fn del_handler(project: Json<Collection>) -> HttpResponse {
     let project_id: usize = project.id.try_into().unwrap();
     projects.remove(project_id);
     let mut i: u32 = 0;
-    let projects = projects.into_iter().map(|mut item| {
-        item.id = i;
-        i += 1;
-        item
-    }).collect();
+    let projects = projects
+        .into_iter()
+        .map(|mut item| {
+            item.id = i;
+            i += 1;
+            item
+        })
+        .collect();
     match write_local_db(&local_projects_path, projects) {
         Ok(_) => {
             println!("{} deleted!", project.title);
