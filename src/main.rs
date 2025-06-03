@@ -4,6 +4,7 @@ use actix_web::{
     App, HttpResponse, HttpServer,
 };
 use awc::Client;
+use chrono::prelude::*;
 use core::settings::Settings;
 use serde::{Deserialize, Serialize};
 use std::io::Result;
@@ -27,6 +28,7 @@ pub struct Collection {
     pub keypoints: Vec<Keypoint>,
     pub summary: String,
     pub text_fields: Vec<TextField>,
+    pub last_modified: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -65,6 +67,7 @@ impl Collection {
         featured: String,
         keypoints: Vec<Keypoint>,
         summary: String,
+        last_modified: String,
     ) -> Self {
         Collection {
             id: id,
@@ -77,6 +80,7 @@ impl Collection {
             keypoints: keypoints,
             summary: summary,
             text_fields: Vec::new(),
+            last_modified: last_modified,
         }
     }
     fn default(projects_data: Vec<Collection>) -> Self {
@@ -98,6 +102,7 @@ impl Collection {
             keypoints: vec![keypoint],
             summary: format!("New Summary {}", id),
             text_fields: Vec::new(),
+            last_modified: Utc::now().to_string(),
         }
     }
 }
@@ -116,13 +121,15 @@ async fn main() -> Result<()> {
     let server = HttpServer::new(|| {
         App::new()
             .service(
-                scope("/v1").service(
-                    resource("/projects")
-                        .route(web::get().to(get_handler))
-                        .route(web::put().to(update_handler))
-                        .route(web::post().to(create_handler))
-                        .route(web::delete().to(del_handler)),
-                ),
+                scope("/v1")
+                    .service(
+                        resource("/projects")
+                            .route(web::get().to(get_handler))
+                            .route(web::put().to(update_handler))
+                            .route(web::post().to(create_handler))
+                            .route(web::delete().to(del_handler)),
+                    )
+                    .service(resource("/folio").route(web::get().to(status_handler))),
             )
             .wrap(
                 Cors::default()
@@ -162,6 +169,10 @@ async fn create_handler(collection: Json<Collection>) -> HttpResponse {
     }
 }
 
+async fn status_handler() -> HttpResponse {
+    HttpResponse::Ok().body("folio is running")
+}
+
 async fn get_handler() -> HttpResponse {
     let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
     match load_from_storage(&local_projects_path) {
@@ -184,88 +195,25 @@ async fn update_handler(collection: Json<Collection>) -> HttpResponse {
     match load_from_storage(&local_projects_path) {
         Ok(collections) => {
             let collection = collection.into_inner();
-            let collections = collections.iter().map(|item| {
-                if item.id == collection.id {
-                    return collection.clone();
-                } else {
-                    return item.clone();
-                }
-            }).collect();
-            println!("{:?}", collections);
-            let _ = write_local_db(&local_projects_path, collections);
-            HttpResponse::Ok().body(format!("Updated \"{}\"", collection_title))
-        }
-        Err(error) => HttpResponse::from_error(error),
-    }
-}
-
-async fn post_handler(new_project_data: Json<Collection>) -> HttpResponse {
-    let local_projects_path = format!("{}/{}.json", LOCAL_PROJECTS_PATH, PROJECTS_FILE_NAME);
-    let mut current_projects: Vec<Collection>;
-    let new_project = Collection::new(
-        new_project_data.id,
-        new_project_data.client.clone(),
-        new_project_data.client_logo.clone(),
-        new_project_data.accent_color.clone(),
-        new_project_data.title.clone(),
-        new_project_data.tags.clone(),
-        new_project_data.featured.clone(),
-        new_project_data.keypoints.clone(),
-        new_project_data.summary.clone(),
-    );
-    match load_from_storage(&local_projects_path) {
-        Ok(projects) => {
-            current_projects = projects;
-            println!("Projects data loaded.");
-            match current_projects
+            let collections = collections
                 .iter()
-                .find(|project| project.id == new_project.id)
-            {
-                Some(project) => {
-                    let project_index: usize = project.id.try_into().unwrap();
-                    current_projects[project_index] = new_project;
-                    match write_local_db(&local_projects_path, current_projects) {
-                        Ok(current_projects) => {
-                            println!(
-                                "\nProject id \"{}\" updated to \"{}\"\n",
-                                &current_projects[project_index].id,
-                                &current_projects[project_index].title
-                            );
-                            HttpResponse::Ok().body("Project updated successfully!")
-                        }
-                        Err(error) => {
-                            eprintln!("Error writing to local projects data: {}", error);
-                            HttpResponse::from_error(error)
-                        }
+                .map(|item| {
+                    if item.id == collection.id {
+                        return collection.clone();
+                    } else {
+                        return item.clone();
                     }
+                })
+                .collect();
+            match write_local_db(&local_projects_path, collections) {
+                Ok(_) => {
+                    println!("Updated \"{}\"", collection_title);
+                    HttpResponse::Ok().body(format!("Updated \"{}\"", collection_title))
                 }
-                None => {
-                    println!("\nProject doesn't exist. Creating project...");
-                    let project_index: usize = new_project.id.try_into().unwrap();
-                    current_projects.push(new_project);
-                    match write_local_db(&local_projects_path, current_projects) {
-                        Ok(current_projects) => {
-                            println!(
-                                "\nProject \"{}\" added with id \"{}\"\n",
-                                &current_projects[project_index].title,
-                                &current_projects[project_index].id
-                            );
-                            HttpResponse::Ok()
-                                .body(format!("Project {} added successfully!", project_index))
-                        }
-                        Err(error) => {
-                            eprintln!("Error writing to local projects data: {}", error);
-                            HttpResponse::from_error(error)
-                        }
-                    }
-                }
+                Err(error) => HttpResponse::from_error(error),
             }
         }
-        Err(error) => {
-            eprintln!("Error fetching projects data: {}", error);
-            let _ = init_local_files().await;
-            HttpResponse::from_error(error)
-        }
+        Err(error) => HttpResponse::from_error(error),
     }
 }
 
@@ -364,7 +312,6 @@ async fn load_from_cdn(remote_projects_path: &str) -> Result<Vec<Collection>> {
 fn write_local_db(path: &str, projects: Vec<Collection>) -> Result<Vec<Collection>> {
     match File::create(&path) {
         Ok(file) => {
-            println!("Creating file...");
             let writer = BufWriter::new(file);
             let _ = serde_json::to_writer_pretty(writer, &projects);
             Ok(projects)
