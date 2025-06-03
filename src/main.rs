@@ -102,7 +102,7 @@ impl Collection {
             keypoints: vec![keypoint],
             summary: format!("New Summary {}", id),
             text_fields: Vec::new(),
-            last_modified: Utc::now().to_string(),
+            last_modified: Local::now().format("%Y-%m-%d %H:%M:%S UTC").to_string(),
         }
     }
 }
