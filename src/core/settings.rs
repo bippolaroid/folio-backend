@@ -104,7 +104,7 @@ impl Settings {
         Settings {
             ipv4_addr: Ipv4Setting {
                 name: "Ipv4 Address".to_string(),
-                value: Ipv4Addr::from([127, 0, 0, 1]),
+                value: Ipv4Addr::from([0, 0, 0, 0]),
             },
             port: U16Setting {
                 name: "Port".to_string(),

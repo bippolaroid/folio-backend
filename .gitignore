@@ -1,3 +1,4 @@
-/target
-/backup/*
-/data/*
+target
+backup/*
+data/*
+key/*

@@ -1,7 +1,7 @@
 {
   "ipv4_addr": {
     "name": "Ipv4 Address",
-    "value": "127.0.0.1"
+    "value": "0.0.0.0"
   },
   "port": {
     "name": "Port",

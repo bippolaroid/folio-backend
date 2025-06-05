@@ -1,10 +1,11 @@
 use core::settings::Settings;
 use std::io::Result;
 
-use crate::{core::data::{load_from_cdn, load_from_storage, write_local_db}, core::data::Collection};
+use crate::{auth::get_local_passkey, core::data::{load_from_cdn, load_from_storage, write_local_db, Collection}};
 
 mod core;
 mod server;
+mod auth;
 
 //implement periodic core checks and creation if they dont exist (folders, etc)
 
